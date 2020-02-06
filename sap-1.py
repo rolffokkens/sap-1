@@ -1,3 +1,5 @@
+import collections
+
 BUS = 0x00
 
 class ProgramCounter:
@@ -9,9 +11,7 @@ class ProgramCounter:
 		BUS = self.pc
 
 	def clock(self):
-		print("increasing PC:")
 		self.pc += 1
-		print(self.pc)
 
 	def reset(self):
 		self.pc = 0
@@ -37,6 +37,9 @@ class Enablable:
 class Accumulator(Loadable, Enablable):
 	pass
 
+class BRegister(Loadable):
+	pass
+
 class Adder:
 	def __init__(self, accumulator, b_register):
 		self.accumulator = accumulator
@@ -52,9 +55,6 @@ class Adder:
 			BUS = self.accumulator.value - self.b_register.value
 		else:
 			BUS = self.accumulator.value + self.b_register.value
-
-class BRegister(Loadable):
-	pass
 
 class InstructionRegister(Loadable, Enablable):
 	def __init__(self):
@@ -78,18 +78,25 @@ class RAM(Enablable):
 class OutputRegister(Loadable):
 	pass
 
+MI = collections.namedtuple(
+		"MI",
+		("enables", "loads", "clocks", "subtracts", "end_instr", "halt"),
+		defaults=(0,0,0,0,0,0)
+)
+
 class Instruction:
 	init_code = [
 		# (enables, loads, clocks, subtracts, end_instr)
-		("pc", 0, 0, 0, 0),
-		(0, "mar", 0, 0, 0),
-		("ram", 0, 0, 0, 0),
-		(0, "ir", 0, 0, 0),
-		(0, 0, "pc", 0, 0),
+		MI("pc", 0, 0, 0, 0),
+		MI(0, "mar", 0, 0, 0),
+		MI("ram", 0, 0, 0, 0),
+		MI(0, "ir", 0, 0, 0),
+		MI(0, 0, "pc", 0, 0),
 	]
-	def __init__(self, microcode_instructions):
+	def __init__(self, name, microcode_instructions):
+		self.name = name
 		self.microcode_instructions = self.init_code + microcode_instructions
-		self.microcode_instructions += [(0, 0, 0, 0, 1)]
+		self.microcode_instructions += [MI(0, 0, 0, 0, 1)]
 
 	def __getitem__(self, item):
 		return self.microcode_instructions[item]
@@ -98,41 +105,48 @@ class Control:
 	def __init__(self, enable_pins, load_pins):
 		self.enable_pins = enable_pins
 		self.load_pins = load_pins
+		self.halted = False
 		self.microcode_ptr = 0
 
 		self.instructions = [
-			Instruction([
-				("ir", 0, 0, 0, 0),
-				(0, "accumulator", 0, 0, 0),
+			Instruction("LDA", [
+				MI("ir", 0, 0, 0, 0),
+				MI(0, "accumulator", 0, 0, 0),
 			]),
-			Instruction([
-				("ir", 0, 0, 0, 0),
-				(0, "b_register", 0, 0, 0),
-				("adder", 0, 0, 0, 0),
-				(0, "accumulator", 0, 0 ,0),
-			])
+			Instruction("ADD", [
+				MI("ir", 0, 0, 0, 0),
+				MI(0, "b_register", 0, 0, 0),
+				MI("adder", 0, 0, 0, 0),
+				MI(0, "accumulator", 0, 0 ,0),
+			]),
+			Instruction("SUB", [
+				MI("ir", 0, 0, 0, 0),
+				MI(0, "b_register", 0, 0, 0),
+				MI("adder", 0, 0, 1, 0),
+				MI(0, "accumulator", 0, 0 ,0),
+			]),
+			Instruction("OUT", [
+			]),
+			Instruction("HLT", [
+				MI(halt=1)
+			]),
 		]
 
 	def clock(self):
-		# put program counter on the bus
-		# load address from memory
-		# put memory on bus
-		# load instruction from bus
-		# increase program counter
-		# execute instruction
-		end_instr = self.execute_microcode(self.instructions[self.enable_pins["ir"].value >> 4][self.microcode_ptr])
+		instr = self.enable_pins["ir"].value >> 4
+		end_instr = self.execute_microcode(self.instructions[instr][self.microcode_ptr])
 		if end_instr:
 			self.microcode_ptr = 0
 		else:
 			self.microcode_ptr = self.microcode_ptr + 1
 
-	def execute_microcode(self, microcode_instruction) -> bool:
-		enables, loads, clocks, subtracts, end_instr = microcode_instruction
+		return self.halted
 
-		print(f"Enabling: {enables}, loading: {loads}, clocking: {clocks}, subtracts: {subtracts}")
-		print(f"BUS: 0x{BUS:02x}")
-		if end_instr:
-			print()
+	def execute_microcode(self, microcode_instruction) -> bool:
+		enables, loads, clocks, subtracts, end_instr, halt = microcode_instruction
+
+		print(f"Enabling: {enables}, loading: {loads}, clocking: {clocks}, subtracts: {subtracts}, halt: {halt}")
+		print(f"BUS: 0x{BUS:02x} ->", end="")
 
 		if enables:
 			self.enable_pins[enables].enable()
@@ -140,7 +154,15 @@ class Control:
 			self.load_pins[loads].load()
 		if clocks:
 			self.enable_pins[clocks].clock()
+		if halt:
+			self.halted = True
 		self.enable_pins["adder"].set_subtract(subtracts)
+
+		print(f"0x{BUS:02x}")
+
+		if end_instr:
+			print()
+
 		return end_instr
 
 
@@ -168,11 +190,12 @@ def main():
 	ENABLE_PINS["ram"].memory[0] = 0x05
 	ENABLE_PINS["ram"].memory[1] = 0x14
 	ENABLE_PINS["ram"].memory[2] = 0x14
+	ENABLE_PINS["ram"].memory[3] = 0x40
 
 	controller = Control(ENABLE_PINS, LOAD_PINS)
 
-	for i in range(40):
-		controller.clock()
+	while not controller.clock():
+		pass
 
 if __name__ == "__main__":
 	main()
