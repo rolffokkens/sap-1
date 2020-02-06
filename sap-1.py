@@ -10,6 +10,9 @@ class ProgramCounter:
 		global BUS
 		BUS = self.pc
 
+	def load(self):
+		self.pc = BUS
+
 	def clock(self):
 		self.pc += 1
 
@@ -78,6 +81,7 @@ class RAM(Enablable):
 class OutputRegister(Loadable):
 	pass
 
+# A microcode instruction, this defines which devices get to enable, load, etc.
 MI = collections.namedtuple(
 		"MI",
 		("enables", "loads", "clocks", "subtracts", "end_instr", "halt"),
@@ -130,10 +134,17 @@ class Control:
 			Instruction("HLT", [
 				MI(halt=1)
 			]),
+			Instruction("JMP", [
+				MI(enables="ir"),
+				MI(loads="pc"),
+			]),
 		]
 
 	def clock(self):
 		instr = self.enable_pins["ir"].value >> 4
+		value = self.enable_pins["ir"].value & 0xF 
+		if self.microcode_ptr == 0:
+			print(self.instructions[instr].name, f"0x{value:02x}")
 		end_instr = self.execute_microcode(self.instructions[instr][self.microcode_ptr])
 		if end_instr:
 			self.microcode_ptr = 0
@@ -187,10 +198,10 @@ def main():
 	}
 
 	# Program theh computer :-)
-	ENABLE_PINS["ram"].memory[0] = 0x05
-	ENABLE_PINS["ram"].memory[1] = 0x14
-	ENABLE_PINS["ram"].memory[2] = 0x14
-	ENABLE_PINS["ram"].memory[3] = 0x40
+	ENABLE_PINS["ram"].memory[0] = 0x05 # LDA $5
+	ENABLE_PINS["ram"].memory[1] = 0x14 # ADD $4
+	ENABLE_PINS["ram"].memory[2] = 0x51 # JMP $1
+	ENABLE_PINS["ram"].memory[3] = 0x40 # HLT
 
 	controller = Control(ENABLE_PINS, LOAD_PINS)
 
