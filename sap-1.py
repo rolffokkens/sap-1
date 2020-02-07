@@ -1,5 +1,26 @@
 import collections
 
+
+"""
+
+
+      +---------+
+Cp -> | Program | -(4)->
+Ep -> | counter |
+      +---------+
+
+
+      +---------+
+Lm -> |  MAR    | <-(4)-
+      +---------+
+           |
+           v
+      +---------+
+CE -> |  RAM    | -(8)->
+      +---------+
+
+"""
+
 BUS = 0x00
 
 class ProgramCounter:
@@ -52,12 +73,12 @@ class Adder:
 		self.b_register = b_register
 		self.subtract = False
 
-	def set_subtract(self, subtract=True):
+	def set_subtract(self, subtract=1):
 		self.subtract = subtract
 
 	def enable(self):
 		global BUS
-		if self.subtract:
+		if self.subtract == 1:
 			BUS = self.accumulator.value - self.b_register.value
 		else:
 			BUS = self.accumulator.value + self.b_register.value
@@ -112,6 +133,64 @@ class Instruction:
 	def __getitem__(self, item):
 		return self.microcode_instructions[item]
 
+instructions = [
+	Instruction("NOP", [
+	]),
+	Instruction("LDA", [
+		MI("ir", 0, 0, 0, 0),
+		MI(0, "mar", 0, 0, 0),
+		MI("ram", 0, 0, 0, 0),
+		MI(0, "accumulator", 0, 0, 0),
+	]),
+	Instruction("ADD", [
+		MI("ir", 0, 0, 0, 0),
+		MI(0, "mar", 0, 0, 0),
+		MI("ram", 0, 0, 0, 0),
+		MI(0, "b_register", 0, 0, 0),
+		MI("adder", 0, 0, 0, 0),
+		MI(0, "accumulator", 0, 0 ,0),
+	]),
+	Instruction("SUB", [
+		MI("ir", 0, 0, 0, 0),
+		MI(0, "b_register", 0, 0, 0),
+		MI("adder", 0, 0, 1, 0),
+		MI(0, "accumulator", 0, 0 ,0),
+	]),
+	Instruction("STA", [
+		MI("ir", 0, 0, 0, 0),
+		MI(0, "mar", 0, 0, 0),
+		MI("accumulator", 0, 0, 0 ,0),
+		MI(0, "ram", 0, 0, 0),
+	]),
+	Instruction("LDI", [
+		MI("ir", 0, 0, 0, 0),
+		MI(0, "accumulator", 0, 0, 0),
+	]),
+	Instruction("JMP", [
+		MI(enables="ir"),
+		MI(loads="pc"),
+	]),
+	Instruction("E7", [
+	]),
+	Instruction("E8", [
+	]),
+	Instruction("E9", [
+	]),
+	Instruction("EA", [
+	]),
+	Instruction("EB", [
+	]),
+	Instruction("EC", [
+	]),
+	Instruction("ED", [
+	]),
+	Instruction("OUT", [
+	]),
+	Instruction("HLT", [
+		MI(halt=1)
+	]),
+]
+
 class Control:
 	def __init__(self, enable_pins, load_pins):
 		self.enable_pins = enable_pins
@@ -119,70 +198,12 @@ class Control:
 		self.halted = False
 		self.microcode_ptr = 0
 
-		self.instructions = [
-			Instruction("NOP", [
-			]),
-			Instruction("LDA", [
-				MI("ir", 0, 0, 0, 0),
-				MI(0, "mar", 0, 0, 0),
-				MI("ram", 0, 0, 0, 0),
-				MI(0, "accumulator", 0, 0, 0),
-			]),
-			Instruction("ADD", [
-				MI("ir", 0, 0, 0, 0),
-				MI(0, "mar", 0, 0, 0),
-				MI("ram", 0, 0, 0, 0),
-				MI(0, "b_register", 0, 0, 0),
-				MI("adder", 0, 0, 0, 0),
-				MI(0, "accumulator", 0, 0 ,0),
-			]),
-			Instruction("SUB", [
-				MI("ir", 0, 0, 0, 0),
-				MI(0, "b_register", 0, 0, 0),
-				MI("adder", 0, 0, 1, 0),
-				MI(0, "accumulator", 0, 0 ,0),
-			]),
-			Instruction("STA", [
-				MI("ir", 0, 0, 0, 0),
-				MI(0, "mar", 0, 0, 0),
-				MI("accumulator", 0, 0, 0 ,0),
-				MI(0, "ram", 0, 0, 0),
-			]),
-			Instruction("LDI", [
-				MI("ir", 0, 0, 0, 0),
-				MI(0, "accumulator", 0, 0, 0),
-			]),
-			Instruction("JMP", [
-				MI(enables="ir"),
-				MI(loads="pc"),
-			]),
-			Instruction("E7", [
-			]),
-			Instruction("E8", [
-			]),
-			Instruction("E9", [
-			]),
-			Instruction("EA", [
-			]),
-			Instruction("EB", [
-			]),
-			Instruction("EC", [
-			]),
-			Instruction("ED", [
-			]),
-			Instruction("OUT", [
-			]),
-			Instruction("HLT", [
-				MI(halt=1)
-			]),
-		]
-
 	def clock(self):
 		instr = self.enable_pins["ir"].value >> 4
-		value = self.enable_pins["ir"].value & 0xF 
-		if self.microcode_ptr == 0:
-			print(self.instructions[instr].name, f"0x{value:02x}")
-		end_instr = self.execute_microcode(self.instructions[instr][self.microcode_ptr])
+		if self.microcode_ptr == len(Instruction.init_code):
+			value = self.enable_pins["ir"].value & 0xF 
+			print(instructions[instr].name, f"0x{value:02x}")
+		end_instr = self.execute_microcode(instructions[instr][self.microcode_ptr])
 		if end_instr:
 			self.microcode_ptr = 0
 		else:
@@ -193,9 +214,10 @@ class Control:
 	def execute_microcode(self, microcode_instruction) -> bool:
 		enables, loads, clocks, subtracts, end_instr, halt = microcode_instruction
 
-		print(f"Enabling: {enables}, loading: {loads}, clocking: {clocks}, subtracts: {subtracts}, halt: {halt}")
-		print(f"BUS: 0x{BUS:02x} ->", end="")
+		print(f" » Enabling: {enables}, loading: {loads}, clocking: {clocks}, subtracts: {subtracts}, halt: {halt}")
+		print(f" » BUS: 0x{BUS:02x} ->", end=" ")
 
+		self.enable_pins["adder"].set_subtract(subtracts)
 		if enables:
 			self.enable_pins[enables].enable()
 		if loads:
@@ -204,7 +226,6 @@ class Control:
 			self.enable_pins[clocks].clock()
 		if halt:
 			self.halted = True
-		self.enable_pins["adder"].set_subtract(subtracts)
 
 		print(f"0x{BUS:02x}")
 
@@ -213,6 +234,31 @@ class Control:
 
 		return end_instr
 
+def dump_mem(ram):
+	print(" » MEM:", end=" ")
+	for i in range(16):
+		print("%02x" % ram.memory[i], end=" ")
+	print("")
+
+def assemble(code):
+	assembled_code = []
+	for line in code.splitlines():
+		line = line.strip()
+		if not line:
+			continue
+		if " " in line:
+			instr_mm, data = line.split()
+			data = int(data)
+		else:
+			instr_mm = line
+			data = 0x0
+		for idx, instr in enumerate(instructions):
+			if instr_mm == instr.name:
+				if data:
+					assembled_code.append((idx << 4) + data)
+				else:
+					assembled_code.append(idx << 4)
+	return assembled_code
 
 def main():
 	mar = MAR()
@@ -235,21 +281,42 @@ def main():
 		"output": OutputRegister(),
 	}
 
-	# Program theh computer :-)
-	ENABLE_PINS["ram"].memory[0] = 0x55 # LDI 5
-	ENABLE_PINS["ram"].memory[1] = 0x4f # STA 15
-	ENABLE_PINS["ram"].memory[2] = 0x54 # LDI 4
-	ENABLE_PINS["ram"].memory[3] = 0x2f # ADD 15
-	ENABLE_PINS["ram"].memory[4] = 0x4e # STA 14
-	ENABLE_PINS["ram"].memory[5] = 0xF0 # HLT
-	ENABLE_PINS["ram"].memory[6] = 0x61 # JMP $1
+	code = assemble("""
+	LDI 5
+	STA 15
+	LDI 4
+	ADD 15
+	STA 14
+	HLT
+	""")
+
+	for idx, instr in enumerate(code):
+		ENABLE_PINS["ram"].memory[idx] = instr
+
+#	# Program theh computer :-)
+#	ENABLE_PINS["ram"].memory[0] = 0x55 # LDI 5
+#	ENABLE_PINS["ram"].memory[1] = 0x4f # STA 15
+#	ENABLE_PINS["ram"].memory[2] = 0x54 # LDI 4
+#	ENABLE_PINS["ram"].memory[3] = 0x2f # ADD 15
+#	ENABLE_PINS["ram"].memory[4] = 0x4e # STA 14
+#	ENABLE_PINS["ram"].memory[5] = 0xF0 # HLT
+#	ENABLE_PINS["ram"].memory[6] = 0x61 # JMP $1
+#
+#	dump_mem(ENABLE_PINS["ram"])
+#	print(" » CDE:", end=" ")
+#	for i in code:
+#		print("%02x" % i, end=" ")
+#	print("")
+
+	# Still need to test out SUB.
+	#ENABLE_PINS["ram"].memory[0] = 0x05 # LDA $5
+	#ENABLE_PINS["ram"].memory[1] = 0x24 # SUB $4
+	#ENABLE_PINS["ram"].memory[2] = 0x40 # HLT
 
 	controller = Control(ENABLE_PINS, LOAD_PINS)
 
 	while not controller.clock():
-		for i in range(16):
-			print("%02x" % ENABLE_PINS["ram"].memory[i], end=" ")
-		print("")
+		dump_mem(ENABLE_PINS["ram"])
 
 if __name__ == "__main__":
 	main()
