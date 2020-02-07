@@ -38,7 +38,10 @@ class Enablable:
 		BUS = self.value & self.enable_mask
 
 class Accumulator(Loadable, Enablable):
-	pass
+	def __init__(self):
+		super().__init__()
+		self.enable_mask = 0xFF
+		self.load_mask = 0xFF
 
 class BRegister(Loadable):
 	pass
@@ -69,14 +72,18 @@ class MAR(Loadable):
 	def __init__(self):
 		self.load_mask = 0xF
 	
-class RAM(Enablable):
+class RAM(Loadable, Enablable):
 	def __init__(self, mar):
 		self.mar = mar
-		self.memory = [0x00] * 0xF
+		self.memory = [0x00] * 0x10
 
 	def enable(self):
 		global BUS
 		BUS = self.memory[self.mar.value]
+
+	def load(self):
+		global BUS
+		self.memory[self.mar.value] = BUS & 0xFF
 
 class OutputRegister(Loadable):
 	pass
@@ -113,12 +120,18 @@ class Control:
 		self.microcode_ptr = 0
 
 		self.instructions = [
+			Instruction("NOP", [
+			]),
 			Instruction("LDA", [
 				MI("ir", 0, 0, 0, 0),
+				MI(0, "mar", 0, 0, 0),
+				MI("ram", 0, 0, 0, 0),
 				MI(0, "accumulator", 0, 0, 0),
 			]),
 			Instruction("ADD", [
 				MI("ir", 0, 0, 0, 0),
+				MI(0, "mar", 0, 0, 0),
+				MI("ram", 0, 0, 0, 0),
 				MI(0, "b_register", 0, 0, 0),
 				MI("adder", 0, 0, 0, 0),
 				MI(0, "accumulator", 0, 0 ,0),
@@ -129,14 +142,38 @@ class Control:
 				MI("adder", 0, 0, 1, 0),
 				MI(0, "accumulator", 0, 0 ,0),
 			]),
-			Instruction("OUT", [
+			Instruction("STA", [
+				MI("ir", 0, 0, 0, 0),
+				MI(0, "mar", 0, 0, 0),
+				MI("accumulator", 0, 0, 0 ,0),
+				MI(0, "ram", 0, 0, 0),
 			]),
-			Instruction("HLT", [
-				MI(halt=1)
+			Instruction("LDI", [
+				MI("ir", 0, 0, 0, 0),
+				MI(0, "accumulator", 0, 0, 0),
 			]),
 			Instruction("JMP", [
 				MI(enables="ir"),
 				MI(loads="pc"),
+			]),
+			Instruction("E7", [
+			]),
+			Instruction("E8", [
+			]),
+			Instruction("E9", [
+			]),
+			Instruction("EA", [
+			]),
+			Instruction("EB", [
+			]),
+			Instruction("EC", [
+			]),
+			Instruction("ED", [
+			]),
+			Instruction("OUT", [
+			]),
+			Instruction("HLT", [
+				MI(halt=1)
 			]),
 		]
 
@@ -192,21 +229,27 @@ def main():
 		"pc": ENABLE_PINS["pc"],
 		"ir": ENABLE_PINS["ir"],
 		"mar": mar,
+		"ram": ENABLE_PINS["ram"],
 		"accumulator": ENABLE_PINS["accumulator"],
 		"b_register": b_register,
 		"output": OutputRegister(),
 	}
 
 	# Program theh computer :-)
-	ENABLE_PINS["ram"].memory[0] = 0x05 # LDA $5
-	ENABLE_PINS["ram"].memory[1] = 0x14 # ADD $4
-	ENABLE_PINS["ram"].memory[2] = 0x51 # JMP $1
-	ENABLE_PINS["ram"].memory[3] = 0x40 # HLT
+	ENABLE_PINS["ram"].memory[0] = 0x55 # LDI 5
+	ENABLE_PINS["ram"].memory[1] = 0x4f # STA 15
+	ENABLE_PINS["ram"].memory[2] = 0x54 # LDI 4
+	ENABLE_PINS["ram"].memory[3] = 0x2f # ADD 15
+	ENABLE_PINS["ram"].memory[4] = 0x4e # STA 14
+	ENABLE_PINS["ram"].memory[5] = 0xF0 # HLT
+	ENABLE_PINS["ram"].memory[6] = 0x61 # JMP $1
 
 	controller = Control(ENABLE_PINS, LOAD_PINS)
 
 	while not controller.clock():
-		pass
+		for i in range(16):
+			print("%02x" % ENABLE_PINS["ram"].memory[i], end=" ")
+		print("")
 
 if __name__ == "__main__":
 	main()
